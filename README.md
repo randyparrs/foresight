@@ -1,123 +1,135 @@
 # Foresight
 
-An AI-powered prediction market platform where news articles become YES/NO markets and get resolved automatically through AI consensus. Built on GenLayer Bradbury testnet.
+An AI-powered prediction market platform where news articles become YES/NO markets and get resolved automatically through AI consensus. Built on GenLayer Studionet.
 
 ## What is this
 
-Prediction markets work better when they are directly connected to the news that drives them. Most platforms treat market creation and resolution as separate problems handled by humans or centralized oracles. I built Foresight to explore whether both could be handled by an intelligent contract on GenLayer: the contract reads a real news URL, generates a binary market question, and resolves it using AI consensus without any admin deciding the outcome.
+Prediction markets work better when they are directly connected to the news that drives them. Most platforms treat market creation and resolution as separate problems handled by humans or centralized oracles. Foresight explores whether both could be handled by an intelligent contract on GenLayer: the contract reads a real news URL, generates a binary market question, and resolves it using AI consensus without any admin deciding the outcome.
 
-Users connect a wallet and bet YES or NO on any open market. When the market closes, the AI resolves it by fetching the source article and evaluating what actually happened. Winners claim points proportional to the pool. There is no human arbiter.
+Users connect a wallet and bet YES or NO on any open market. When the market closes, the AI resolves it by fetching the source article and evaluating what actually happened. Winners claim their share proportional to the pool. There is no human arbiter.
+
+The Signal is an on-chain AI journalism layer that runs alongside the markets. An automated bot reads real news sources and publishes structured articles — with title, headline, body, tags, and sentiment — directly on-chain through validator consensus.
 
 ## Why GenLayer
 
 The core problem with AI-resolved markets is trust. If a single AI decides whether an event happened, you have to trust that AI and whoever controls it. GenLayer solves this with Optimistic Democracy: multiple independent validator nodes each run the same AI evaluation, and the result is only committed on-chain when enough validators agree. A single validator cannot manipulate the outcome.
 
-A traditional setup using a centralized backend could simulate this, but the results would be off-chain and modifiable. Here every market, every prediction, and every resolution is a transaction on GenLayer Bradbury testnet that anyone can verify.
-
-## How it works
-
-When the bot or a user calls generate_market with a news URL, the contract fetches the article, extracts the key claim, and stores a YES/NO question on-chain. Any wallet can call place_prediction to bet one point on either side. The pool adjusts with each new prediction and the probability updates accordingly.
-
-When a market is ready to settle, anyone calls resolve_market which triggers Optimistic Democracy consensus. The leader node fetches the source URL and determines the outcome. Validators independently do the same and compare results. If enough validators agree, the market moves to RESOLVED and winners can claim their points. If validators cannot agree the market goes to DISPUTED and re_resolve_market can be called to try again.
-
-The contract uses the Equivalence Principle for all non-deterministic operations. The leader performs the web fetch and AI reasoning first, then validators reproduce the same steps independently. This is what makes the AI resolution trustworthy instead of a single model call.
+Every market, every prediction, and every resolution is a transaction on GenLayer that anyone can verify.
 
 ## Network
 
 | Parameter | Value |
 |-----------|-------|
-| Network | GenLayer Bradbury Testnet |
-| Chain ID | 4221 |
-| RPC | https://rpc-bradbury.genlayer.com |
-| Explorer | https://explorer-bradbury.genlayer.com |
+| Network | GenLayer Studionet |
+| Chain ID | 61999 |
+| RPC | https://studio.genlayer.com/api |
+| Studio IDE | https://studio.genlayer.com |
 
-## Contract functions
+## Deployed contracts (Studionet)
 
-**Markets contract — 0x43b38042d43dffD570bD561Ac46294785f7E202B**
+| Contract | Address |
+|----------|---------|
+| Foresight Markets | `0x990e6B8982e5624fb700d051b9D90e74Cf68a6Cf` |
+| The Signal | `0x317ce8bb69C97ED302F22643b92Bc6e423B687C3` |
 
-generate_market takes a news URL and an optional terms string. The AI reads the article and generates a market question stored on-chain with OPEN status.
+## Repository structure
 
-place_prediction takes a market ID and a side of YES or NO. Each prediction costs one point. Only open markets accept predictions.
+```
+bradbury/
+  Foresight_markets.py   — Markets contract for Bradbury testnet
+  The_Signal.py          — Signal contract for Bradbury testnet
 
-resolve_market takes a market ID and triggers AI resolution through Optimistic Democracy. The market moves to RESOLVED with a result, or to DISPUTED if validators cannot agree.
+studionet/
+  Foresight_markets.py   — Markets contract for Studionet
+  The_Signal.py          — Signal contract for Studionet
 
-re_resolve_market takes a market ID and retriggers resolution on a DISPUTED market. Can be called multiple times until consensus is reached.
+Foresight_markets_studio.py  — Active Studio version (deployed above)
+The_Signal_studio.py         — Active Studio version (deployed above)
+```
 
-expire_market takes a market ID and can only be called by the contract owner. Moves an OPEN market to EXPIRED, which entitles all predictors to a refund.
+## Runner hash
 
-claim_winnings takes a market ID and transfers the proportional pool reward to the caller if they predicted correctly on a RESOLVED market.
+| Network | Hash |
+|---------|------|
+| Studionet | `py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6` |
+| Bradbury | `py-genlayer:1j12s63yfjpva9ik2xgnffgrs6v44y1f52jvj9w7xvdn7qckd379` |
 
-claim_refund takes a market ID and returns the caller's stake on an EXPIRED market.
+Always use a pinned hash. Floating tags like `py-genlayer:test` are blocked on all networks.
 
-get_market takes a market ID and returns the full state including question, pool sizes, probability, status, result, and quality score.
+## Foresight Markets — contract functions
 
-get_summary returns global statistics including total markets, open count, resolved count, expired count, and total predictions placed.
+**Owner or bot only**
 
-get_top_predictors returns the ranked list of wallets by wins, losses, win rate, and net points.
+`generate_market(news_url, topic_hint)` — reads the URL, generates a YES/NO binary question, and stores it on-chain with OPEN status.
 
-get_my_predictions takes a wallet address and returns all prediction records for that wallet including market ID, side, and outcome.
+`resolve_market(market_id)` — triggers AI resolution through Optimistic Democracy. Moves to RESOLVED with a result, or to DISPUTED if validators cannot agree.
 
-get_markets_by_category takes a category string and returns all market IDs in that category. Valid categories are CRYPTO, TECH, POLITICS, SPORTS, and OTHER.
+`re_resolve_market(market_id)` — retriggers resolution on a DISPUTED market.
 
-**Signal contract — 0xd776B579E21a89C0FC0Ee33E78eda866d9aD5ded**
+`expire_market(market_id)` — closes an OPEN market as EXPIRED, entitling all bettors to a refund.
 
-publish_article takes a category and up to three source URLs. The AI reads the sources, writes a structured article with title, headline, body, tags, and sentiment, and publishes it on-chain after validator consensus.
+**Anyone**
 
-get_article returns the full article by ID including all fields.
+`place_prediction(market_id, side, amount)` — bets YES or NO on an open market.
 
-get_latest returns the N most recently published articles.
+`claim_winnings(market_id)` — claims proportional reward on a RESOLVED market.
 
-get_articles_by_category returns all article IDs for a given category.
+`claim_refund(market_id)` — returns stake on an EXPIRED market.
 
-get_summary returns total article counts by category and sentiment.
+`get_market(market_id)` — returns full market state.
+
+`get_summary` — global stats: totals, open count, resolved, expired, predictions.
+
+`get_top_predictors` — ranked leaderboard by wins, losses, and win rate.
+
+`get_my_predictions(address)` — all predictions for a wallet.
+
+`get_markets_by_category(category)` — market IDs filtered by category. Valid: CRYPTO, TECH, POLITICS, SPORTS, MARKETS, OTHER.
+
+## The Signal — contract functions
+
+**Owner or bot only**
+
+`publish_article(category, source_url_1, source_url_2, source_url_3)` — AI reads the sources, writes a structured article with title, headline, body, tags, and sentiment, and publishes it on-chain after validator consensus.
+
+**Anyone**
+
+`get_article(article_id)` — returns the full article.
+
+`get_latest(count)` — returns the N most recently published articles.
+
+`get_articles_by_category(category)` — article IDs filtered by category.
+
+`get_summary` — article counts by category and sentiment.
 
 ## Test results
 
-All contract functions tested end to end on Bradbury testnet. Full flow confirmed: generate market, place prediction, resolve market (YES result, 90% confidence), claim winnings. The Signal contract tested with publish_article producing a BULLISH CRYPTO article from live news sources with 5/5 validator consensus.
+All contract functions tested end to end on Studionet. Full flow confirmed:
 
-Markets sourced from Wikipedia and similar open sources resolve reliably. URLs with paywalls or bot protection (Vercel shields, CoinDesk, etc.) may cause DISPUTED outcomes because the AI cannot fetch the content. Calling re_resolve_market one or two more times usually reaches consensus.
+**Foresight Markets:** generate_market → place_prediction → resolve_market (YES, 100% confidence) → claim_winnings → expire_market → claim_refund → resolve_market (DISPUTED) → re_resolve_market.
 
-## How to deploy
-
-Install the GenLayer CLI and configure it for Bradbury testnet. Then deploy with:
-
-```bash
-echo "your-password" | genlayer deploy --contract Foresight_markets.py
-echo "your-password" | genlayer deploy --contract The_Signal.py
-```
-
-Call get_summary to confirm the contracts are live. Follow this order for a full test: generate_market, get_market, place_prediction, resolve_market, get_market again to see result, claim_winnings.
-
-## Important: runner hash
-
-The contracts use a pinned GenVM runner hash for Bradbury compatibility:
-
-```python
-# { "Depends": "py-genlayer:1j12s63yfjpva9ik2xgnffgrs6v44y1f52jvj9w7xvdn7qckd379" }
-```
-
-Using py-genlayer:test is blocked on Bradbury (non-debug mode) and will cause a FINISHED_WITH_ERROR result.
+**The Signal:** publish_article (BULLISH CRYPTO article from Wikipedia sources, 5/5 validator consensus) → get_article → get_latest → get_articles_by_category.
 
 ## The bot
 
-An off-chain bot automates platform activity so markets and articles are generated continuously without manual intervention. The bot runs every hour triggered by cron-job.org via GitHub Actions dispatch. Each run picks a random news article from a curated pool, calls generate_market on the Markets contract, and calls publish_article on the Signal contract. The bot uses genlayer-js to send transactions and waits for each one to finalize before exiting.
+An automated bot runs every 4 hours triggered by cron-job.org via GitHub Actions dispatch. Each run calls `generate_market` on the Markets contract and `publish_article` on the Signal contract with a random news source from a curated pool. The bot wallet `0x027bE5Ff6123a660243Fb65602a78e99271F0Fec` is authorized in both contracts.
 
-The bot repository is at https://github.com/randyparrs/foresight-bot and the private key is stored as a GitHub Actions secret.
+Bot repository: https://github.com/randyparrs/foresight-bot
 
 ## Live frontend
 
-The frontend is deployed at https://foresightmrkts.netlify.app and connects directly to the contracts on GenLayer Bradbury testnet using a custom client built on genlayer-js.
+The frontend is deployed at https://foresight-appv2.netlify.app and connects directly to the contracts on Studionet using genlayer-js.
 
-The home page shows a live ticker of all open markets, real-time stats from the contract, the most recent markets as clickable cards, and the most recent Signal articles. The markets page shows all on-chain markets with YES/NO probability bars, pool sizes, and category filters. Each card has betting buttons for open markets and action buttons for resolved, disputed, and expired states. The leaderboard shows the top predictors ranked by net points and win rate pulled live from get_top_predictors. The notification bell loads your prediction history on wallet connect and shows a WIN, LOSS, or REFUND notification for every settled market you participated in.
+Frontend repository: https://github.com/randyparrs/foresight-app (private)
 
 ## Resources
 
-GenLayer Docs at https://docs.genlayer.com
+GenLayer Docs: https://docs.genlayer.com
 
-Bradbury Explorer at https://explorer-bradbury.genlayer.com
+Studio IDE: https://studio.genlayer.com
 
-Optimistic Democracy at https://docs.genlayer.com/understand-genlayer-protocol/core-concepts/optimistic-democracy
+Optimistic Democracy: https://docs.genlayer.com/understand-genlayer-protocol/core-concepts/optimistic-democracy
 
-Equivalence Principle at https://docs.genlayer.com/understand-genlayer-protocol/core-concepts/optimistic-democracy/equivalence-principle
+Equivalence Principle: https://docs.genlayer.com/understand-genlayer-protocol/core-concepts/optimistic-democracy/equivalence-principle
 
-Discord at https://discord.gg/8Jm4v89VAu
+Discord: https://discord.gg/8Jm4v89VAu
