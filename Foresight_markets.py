@@ -1,6 +1,10 @@
-# { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
+# { "Depends": "py-genlayer:1j12s63yfjpva9ik2xgnffgrs6v44y1f52jvj9w7xvdn7qckd379" }
 
 from genlayer import *
+
+# Minimum bet: 0.5 GEN fixed (1 GEN = 10^18 wei)
+_MIN_BET_WEI = 500_000_000_000_000_000
+
 
 class ForesightMarkets(gl.Contract):
 
@@ -219,8 +223,7 @@ class ForesightMarkets(gl.Contract):
     @gl.public.write
     def generate_market(self, news_url: str, topic_hint: str) -> str:
         caller = str(gl.message.sender_address)
-        bot = "0x027be5ff6123a660243fb65602a78e99271f0fec"
-        assert caller.lower() == str(self.owner).lower() or caller.lower() == bot, "Only owner or bot can create markets"
+        assert caller.lower() == str(self.owner).lower(), "Only owner can create markets"
         assert len(news_url) >= 10, "News URL too short"
         assert len(topic_hint) >= 3, "Topic hint too short"
 
@@ -397,7 +400,14 @@ No extra text."""
         def validator_fn(leaders_result) -> bool:
             if not isinstance(leaders_result, gl.vm.Return):
                 return False
-            return True
+            try:
+                validator_result = leader_fn()
+                leader_data = leaders_result.calldata
+                if leader_data["result"] != validator_result["result"]:
+                    return False
+                return abs(leader_data["confidence"] - validator_result["confidence"]) <= 20
+            except Exception:
+                return False
 
         data = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
 
@@ -491,7 +501,14 @@ No extra text."""
         def validator_fn(leaders_result) -> bool:
             if not isinstance(leaders_result, gl.vm.Return):
                 return False
-            return True
+            try:
+                validator_result = leader_fn()
+                leader_data = leaders_result.calldata
+                if leader_data["result"] != validator_result["result"]:
+                    return False
+                return abs(leader_data["confidence"] - validator_result["confidence"]) <= 20
+            except Exception:
+                return False
 
         data = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
 
@@ -543,16 +560,18 @@ No extra text."""
     def transfer_ownership(self, new_owner: Address) -> str:
         caller = str(gl.message.sender_address)
         assert caller.lower() == str(self.owner).lower(), "Only owner can transfer ownership"
-        self.owner = Address(new_owner)
+        self.owner = new_owner
         return f"Ownership transferred to {str(new_owner)}"
 
     # ── User write functions ───────────────────────────────────────────────────
 
-    @gl.public.write
-    def place_prediction(self, market_id: str, side: str, amount: u256) -> str:
+    @gl.public.write.payable
+    def place_prediction(self, market_id: str, side: str) -> str:
         assert self._get(market_id, "status") == "open", "Market is not open"
         assert side in ("YES", "NO"), "Side must be YES or NO"
-        assert int(amount) > 0, "Amount must be greater than 0"
+
+        amount = int(gl.message.value)
+        assert amount >= _MIN_BET_WEI, "Minimum bet is 0.5 GEN"
 
         self.block_counter = u256(int(self.block_counter) + 1)
         caller = str(gl.message.sender_address)
@@ -615,9 +634,10 @@ No extra text."""
                 return "No predictions found for this market"
             # Mark claimed FIRST — reentrancy protection
             self.claimed[claim_key] = u256(caller_stake_any)
+            gl.get_contract_at(Address(caller)).emit_transfer(value=u256(caller_stake_any))
             return (
                 f"No winners exist on {winning_side} side. "
-                f"Refunded stake of {caller_stake_any} GEN "
+                f"Refunded stake of {self._format_gen(caller_stake_any)} GEN "
                 f"from market {market_id}."
             )
 
@@ -638,11 +658,12 @@ No extra text."""
 
         # Mark claimed FIRST — reentrancy protection
         self.claimed[claim_key] = u256(winnings)
+        gl.get_contract_at(Address(caller)).emit_transfer(value=u256(winnings))
 
         return (
-            f"Claimed {winnings} GEN from market {market_id}. "
-            f"Your stake: {caller_stake} GEN on {winning_side}. "
-            f"Total pool: {total_pool} GEN."
+            f"Claimed {self._format_gen(winnings)} GEN from market {market_id}. "
+            f"Your stake: {self._format_gen(caller_stake)} GEN on {winning_side}. "
+            f"Total pool: {self._format_gen(total_pool)} GEN."
         )
 
     @gl.public.write
@@ -669,8 +690,9 @@ No extra text."""
 
         # Mark claimed FIRST — reentrancy protection
         self.claimed[claim_key] = u256(total_stake)
+        gl.get_contract_at(Address(caller)).emit_transfer(value=u256(total_stake))
 
-        return f"Refunded {total_stake} GEN from expired market {market_id}."
+        return f"Refunded {self._format_gen(total_stake)} GEN from expired market {market_id}."
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 

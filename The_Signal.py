@@ -1,4 +1,4 @@
-# { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
+# { "Depends": "py-genlayer:1j12s63yfjpva9ik2xgnffgrs6v44y1f52jvj9w7xvdn7qckd379" }
 
 from genlayer import *
 
@@ -20,7 +20,7 @@ class TheSignal(gl.Contract):
 
     def __init__(self):
         self.owner = gl.message.sender_address
-        self.bot_address = Address("0x027bE5Ff6123a660243Fb65602a78e99271F0Fec")
+        self.bot_address = gl.message.sender_address  # owner llama set_bot() después del deploy
         self.article_counter = u256(0)
         self.block_counter = u256(0)
 
@@ -128,18 +128,14 @@ class TheSignal(gl.Contract):
     def set_bot(self, new_bot: Address) -> str:
         caller = str(gl.message.sender_address)
         assert caller.lower() == str(self.owner).lower(), "Only owner can set bot address"
-        # Studio passes Address as a large integer — convert to hex string first
-        if isinstance(new_bot, int):
-            self.bot_address = Address("0x" + format(new_bot, '040x'))
-        else:
-            self.bot_address = Address(new_bot)
-        return f"Bot address updated"
+        self.bot_address = new_bot
+        return f"Bot address updated to {str(new_bot)}"
 
     @gl.public.write
     def transfer_ownership(self, new_owner: Address) -> str:
         caller = str(gl.message.sender_address)
         assert caller.lower() == str(self.owner).lower(), "Only owner can transfer ownership"
-        self.owner = Address(new_owner)
+        self.owner = new_owner
         return f"Ownership transferred to {str(new_owner)}"
 
     # ─── BOT WRITE METHODS ──────────────────────────────────────────────────────
@@ -153,8 +149,7 @@ class TheSignal(gl.Contract):
         source_url_3: str,
     ) -> str:
         caller = str(gl.message.sender_address)
-        bot = "0x027be5ff6123a660243fb65602a78e99271f0fec"
-        assert caller.lower() == str(self.owner).lower() or caller.lower() == bot, "Only owner or bot can publish articles"
+        assert caller.lower() == str(self.bot_address).lower(), "Only the bot can publish articles"
         valid_categories = ("CRYPTO", "SPORTS", "POLITICS", "MARKETS", "TECH", "OTHER")
         assert category.upper() in valid_categories, "Invalid category"
         assert len(source_url_1) >= 10, "Source URL 1 too short"
@@ -302,7 +297,14 @@ No extra text."""
         def validator_fn(leaders_result) -> bool:
             if not isinstance(leaders_result, gl.vm.Return):
                 return False
-            return True
+            try:
+                validator_result = leader_fn()
+                leader_data = leaders_result.calldata
+                if leader_data["sentiment"] != validator_result["sentiment"]:
+                    return False
+                return True
+            except Exception:
+                return False
 
         data = gl.vm.run_nondet_unsafe(leader_fn, validator_fn)
 
